@@ -35,7 +35,7 @@ def scheduler_select(scheduler_model, optimizer, dataloader_len, task, args):
     if task == 'cls':
         num_epochs = args.cls_num_epochs
     if task == 'recon':
-        num_epochs = args.recon_num_epohcs
+        num_epochs = args.recon_num_epochs
 
     # Scheduler setting
     if scheduler_model == 'constant':

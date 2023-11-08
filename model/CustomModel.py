@@ -43,15 +43,15 @@ class CustomModel(nn.Module):
         self.encoder = encoder
 
         try:
-            self.d_hidden = encoder_model_config.d_model
+            self.enc_d_hidden = encoder_model_config.d_model
         except:
-            self.d_hidden = encoder_model_config.hidden_size
-        self.d_embedding = int(self.d_hidden / 2)
+            self.enc_d_hidden = encoder_model_config.hidden_size
+        self.enc_d_embedding = int(self.enc_d_hidden / 2)
 
         # Classifier Linear Model Setting
-        self.cls_linear = nn.Linear(self.d_hidden, self.d_embedding)
-        self.cls_norm = nn.LayerNorm(self.d_embedding, eps=1e-12)
-        self.cls_linear2 = nn.Linear(self.d_embedding, self.trg_label_num)
+        self.cls_linear = nn.Linear(self.enc_d_hidden, self.enc_d_embedding)
+        self.cls_norm = nn.LayerNorm(self.enc_d_embedding, eps=1e-12)
+        self.cls_linear2 = nn.Linear(self.enc_d_embedding, self.trg_label_num)
 
         # Decoder model setting
         self.decoder_model_type = decoder_model_type
@@ -59,18 +59,21 @@ class CustomModel(nn.Module):
         decoder, decoder_model_config = decoder_model_setting(decoder_model_name, self.isPreTrain)
         
         try:
-            self.d_hidden = encoder_model_config.d_model
+            self.dec_d_hidden = decoder_model_config.d_model
         except:
-            self.d_hidden = encoder_model_config.hidden_size
-        self.d_embedding = int(self.d_hidden / 2)
+            self.dec_d_hidden = decoder_model_config.hidden_size
+        self.dec_d_embedding = int(self.dec_d_hidden / 2)
         self.vocab_num = trg_vocab_num
 
         self.decoder = decoder
 
+        if self.enc_d_hidden != self.dec_d_hidden:
+            self.enc_to_dec_hidden = nn.Linear(self.enc_d_hidden, self.dec_d_hidden)
+
         # Decoder Linear Model Setting
-        self.decoder_linear = nn.Linear(self.d_hidden, self.d_embedding)
-        self.decoder_norm = nn.LayerNorm(self.d_embedding, eps=1e-12)
-        self.decoder_linear2 = nn.Linear(self.d_embedding, self.vocab_num)
+        self.decoder_linear = nn.Linear(self.dec_d_hidden, self.dec_d_embedding)
+        self.decoder_norm = nn.LayerNorm(self.dec_d_embedding, eps=1e-12)
+        self.decoder_linear2 = nn.Linear(self.dec_d_embedding, self.vocab_num)
 
         # Tokenizer Setting
         self.tokenizer = AutoTokenizer.from_pretrained(decoder_model_name)
@@ -259,7 +262,7 @@ def encoder_model_setting(model_name, isPreTrain):
     else:
         basemodel = AutoModel.from_config(model_config)
 
-    if model_name == 'bert-base-cased':
+    if model_name == 'bert-large-cased':
         encoder = basemodel
     else:
         encoder = basemodel.encoder
@@ -280,7 +283,7 @@ def decoder_model_setting(model_name, isPreTrain):
 
 def return_model_name(model_type):
     if model_type == 'bert':
-        out = 'bert-base-cased'
+        out = 'bert-large-cased'
     if model_type == 'albert':
         out = 'albert-base-v2'
     if model_type == 'deberta':
@@ -290,5 +293,5 @@ def return_model_name(model_type):
     if model_type == 'kr_bart':
         out = 'cosmoquester/bart-ko-mini'
     if model_type == 'T5':
-        out = 't5-base'
+        out = 't5-large'
     return out

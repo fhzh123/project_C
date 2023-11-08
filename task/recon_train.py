@@ -52,9 +52,9 @@ def recon_training(args):
     trg_vocab_num = trg_tokenizer.vocab_size
 
     dataset_dict = {
-        'train': ReconDataset(src_tokenizer=src_tokenizer, src_list=total_src_list['train'], trg_list=total_trg_list['train'], 
+        'train': ReconDataset(src_tokenizer=src_tokenizer, trg_tokenizer=trg_tokenizer, src_list=total_src_list['train'], trg_list=total_trg_list['train'], 
                               src_max_len=args.src_max_len),
-        'valid': ReconDataset(src_tokenizer=src_tokenizer, src_list=total_src_list['valid'], trg_list=total_trg_list['valid'], 
+        'valid': ReconDataset(src_tokenizer=src_tokenizer, trg_tokenizer=trg_tokenizer, src_list=total_src_list['valid'], trg_list=total_trg_list['valid'], 
                               src_max_len=args.src_max_len)
     }
     dataloader_dict = {
@@ -70,6 +70,11 @@ def recon_training(args):
                         trg_label_num=len(set(total_trg_list['train'])),
                         src_max_len=args.src_max_len, isPreTrain=args.isPreTrain, dropout=args.dropout, 
                         pooling=args.pooling, pca_comp_n=args.pca_comp_n)
+    save_file_name = f'checkpoint_enc_{args.encoder_model_type}_dec_{args.decoder_model_type}_pca_{args.pca_reduction}_seed_{args.random_seed}.pth.tar'
+    save_file_path = os.path.join(args.model_save_path, args.data_name, save_file_name)
+    checkpoint = torch.load(save_file_path)
+    model.load_state_dict(checkpoint['model'])
+    write_log(logger, f'Loaded augmenter model from {save_file_path}')
     model.to(device)
 
     # 3) Optimizer & Learning rate scheduler setting

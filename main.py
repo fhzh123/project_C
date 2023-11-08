@@ -47,11 +47,11 @@ if __name__=='__main__':
     # Path setting
     parser.add_argument('--data_path', default='/HDD/dataset', type=str,
                         help='Original data path')
-    parser.add_argument('--preprocess_path', default=f'/HDD/{user_name}/preprocessed/pca', type=str,
+    parser.add_argument('--preprocess_path', default=f'/HDD/{user_name}/preprocessed/project_C', type=str,
                         help='Pre-processing data path')
-    parser.add_argument('--model_save_path', default=f'/HDD/{user_name}/model_checkpoint/pca', type=str,
+    parser.add_argument('--model_save_path', default=f'/HDD/{user_name}/model_checkpoint/project_C', type=str,
                         help='Model checkpoint file path')
-    parser.add_argument('--result_path', default=f'/HDD/{user_name}/results/pca', type=str,
+    parser.add_argument('--result_path', default=f'/HDD/{user_name}/results/project_C', type=str,
                         help='Results file path')
     # Preprocessing setting
     parser.add_argument('--src_max_len', default=150, type=int,
