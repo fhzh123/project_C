@@ -38,7 +38,7 @@ if __name__=='__main__':
     user_name = os.getlogin()
     parser = argparse.ArgumentParser(description='Parsing Method')
     # Task setting
-    parser.add_argument('--data_name', default='WMT2016_Multimodal', type=str,
+    parser.add_argument('--data_name', default='IMDB', type=str,
                         help='')
     parser.add_argument('--cls_training', action='store_true')
     parser.add_argument('--recon_training', action='store_true')
