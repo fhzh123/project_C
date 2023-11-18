@@ -155,7 +155,7 @@ class CustomModel(nn.Module):
             # Encoder hidden state expanding
             encoder_hidden_states = encoder_hidden_states.unsqueeze(1) # (batch_size, 1, seq_len, d_hidden)
             encoder_hidden_states = encoder_hidden_states.repeat(1, beam_size, 1, 1) # (batch_size, beam_size, seq_len, d_hidden)
-            encoder_hidden_states = encoder_hidden_states.view(-1, src_seq_size, self.d_hidden) # (batch_size * beam_size, seq_len, d_hidden)
+            encoder_hidden_states = encoder_hidden_states.view(-1, src_seq_size, self.dec_d_hidden) # (batch_size * beam_size, seq_len, d_hidden)
 
             if not encoder_attention_mask == None:
                 encoder_attention_mask = encoder_attention_mask.view(batch_size, 1, -1)
@@ -289,7 +289,7 @@ def return_model_name(model_type):
     if model_type == 'deberta':
         out = 'microsoft/deberta-v3-base'
     if model_type == 'bart':
-        out = 'facebook/bart-large'
+        out = 'facebook/bart-base'
     if model_type == 'kr_bart':
         out = 'cosmoquester/bart-ko-mini'
     if model_type == 'T5':

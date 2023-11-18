@@ -82,7 +82,8 @@ def recon_training(args):
     scheduler = scheduler_select(scheduler_model=args.scheduler, optimizer=optimizer, dataloader_len=len(dataloader_dict['train']), task='recon', args=args)
 
     cudnn.benchmark = True
-    recon_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps, ignore_index=model.pad_idx).to(device)
+    # recon_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps, ignore_index=model.pad_idx).to(device)
+    recon_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps).to(device)
 
     # 3) Model resume
     start_epoch = 0
@@ -119,6 +120,7 @@ def recon_training(args):
             src_att = batch_iter[0][1].to(device, non_blocking=True)
 
             trg_sequence = batch_iter[1][0].to(device, non_blocking=True) # Same as src_sequence
+            trg_sequence = trg_sequence[:,1:,]
             _ = batch_iter[1][1].to(device, non_blocking=True)
             _ = batch_iter[1][2].to(device, non_blocking=True)
 
@@ -132,15 +134,16 @@ def recon_training(args):
                     src_att = None
 
             # Decoding
-            hidden_states = model.decode(trg_input_ids=src_sequence, decoder_start_token_id=model.decoder_start_token_id, 
+            hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
                                          encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
             logit = model.generate(hidden_states=hidden_states)
             
             # Loss Backward
-            trg_sequence_view = trg_sequence.contiguous().view(-1)
-            logit_view = logit.view(-1, trg_vocab_num)
+            non_pad = [trg_sequence != model.pad_idx]
+            trg_sequence_non_pad = trg_sequence[trg_sequence != model.pad_idx]
+            logit_non_pad = logit[trg_sequence != model.pad_idx]
 
-            train_loss = recon_criterion(logit_view, trg_sequence_view)
+            train_loss = recon_criterion(logit_non_pad, trg_sequence_non_pad)
             train_loss.backward()
             if args.clip_grad_norm > 0:
                 clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -149,7 +152,7 @@ def recon_training(args):
 
             # Print loss value only training
             if i == 0 or i % args.print_freq == 0 or i == len(dataloader_dict['train'])-1:
-                train_acc = (logit_view.argmax(dim=1)[trg_sequence_view != model.pad_idx] == trg_sequence_view[trg_sequence_view != model.pad_idx]).sum() / (trg_sequence_view != model.pad_idx).sum()
+                train_acc = (logit_non_pad.argmax(dim=1) == trg_sequence_non_pad).sum() / len(trg_sequence_non_pad)
                 iter_log = "[Epoch:%03d][%03d/%03d] train_loss:%03.2f | train_accuracy:%03.2f | learning_rate:%1.6f |spend_time:%02.2fmin" % \
                     (epoch, i, len(dataloader_dict['train'])-1, train_loss.item(), train_acc.item() * 100, optimizer.param_groups[0]['lr'], (time() - start_time_e) / 60)
                 write_log(logger, iter_log)
@@ -169,6 +172,7 @@ def recon_training(args):
             src_att = batch_iter[0][1].to(device, non_blocking=True)
 
             trg_sequence = batch_iter[1][0].to(device, non_blocking=True) # Same as src_sequence
+            trg_sequence = trg_sequence[:,1:,]
             _ = batch_iter[1][1].to(device, non_blocking=True)
             _ = batch_iter[1][2].to(device, non_blocking=True)
 
@@ -182,7 +186,7 @@ def recon_training(args):
                     src_att = None
 
                 # Decoding
-                hidden_states = model.decode(trg_input_ids=src_sequence, decoder_start_token_id=model.decoder_start_token_id, 
+                hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
                                             encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
                 logit = model.generate(hidden_states=hidden_states)
 

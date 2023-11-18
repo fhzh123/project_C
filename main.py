@@ -5,7 +5,7 @@ import argparse
 # Import custom modules
 from task.cls_train import cls_training
 from task.recon_train import recon_training
-# from task.testing import testing
+from task.augment import augment
 # Utils
 from utils import str2bool, path_check, set_random_seed
 
@@ -27,8 +27,8 @@ def main(args):
         if args.recon_training:
             recon_training(args)
 
-        # if args.testing:
-        #     testing(args)
+        if args.augment:
+            augment(args)
 
 
     # Time calculate
@@ -43,6 +43,7 @@ if __name__=='__main__':
     parser.add_argument('--cls_training', action='store_true')
     parser.add_argument('--recon_training', action='store_true')
     parser.add_argument('--testing', action='store_true')
+    parser.add_argument('--augment', action='store_true')
     parser.add_argument('--resume', action='store_true')
     # Path setting
     parser.add_argument('--data_path', default='/HDD/dataset', type=str,
@@ -81,10 +82,10 @@ if __name__=='__main__':
     # Train setting
     parser.add_argument('--random_seed', default=42, type=int,
                         help='Random seed setting; Default is 42')
-    parser.add_argument('--cls_num_epochs', default=100, type=int,
-                        help='Number of epochs; Default is 100')
-    parser.add_argument('--recon_num_epochs', default=100, type=int,
-                        help='Number of epochs; Default is 100')
+    parser.add_argument('--cls_num_epochs', default=5, type=int,
+                        help='Number of epochs; Default is 5')
+    parser.add_argument('--recon_num_epochs', default=30, type=int,
+                        help='Number of epochs; Default is 30')
     parser.add_argument('--batch_size', default=16, type=int,
                         help='Training batch size; Default is 16')
     parser.add_argument('--num_workers', default=8, type=int,
@@ -104,6 +105,8 @@ if __name__=='__main__':
     parser.add_argument('--clip_grad_norm', default=5, type=int,
                         help='Gradient clipping norm setting; Default is 5')
     # Inference setting
+    parser.add_argument('--fgsm_epsilon', default=0.1, type=float, 
+                        help='')
     parser.add_argument('--beam_size', default=5, type=int,
                         help="")
     parser.add_argument('--beam_alpha', default=0.7, type=float,
