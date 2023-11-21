@@ -190,11 +190,12 @@ def recon_training(args):
                                             encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
                 logit = model.generate(hidden_states=hidden_states)
 
-            trg_sequence_view = trg_sequence.contiguous().view(-1)
-            logit_view = logit.view(-1, trg_vocab_num)
+            non_pad = [trg_sequence != model.pad_idx]
+            trg_sequence_non_pad = trg_sequence[trg_sequence != model.pad_idx]
+            logit_non_pad = logit[trg_sequence != model.pad_idx]
 
-            val_acc += (logit_view.argmax(dim=1)[trg_sequence_view != model.pad_idx] == trg_sequence_view[trg_sequence_view != model.pad_idx]).sum() / (trg_sequence_view != model.pad_idx).sum()
-            val_loss += recon_criterion(logit_view, trg_sequence_view)
+            val_acc += (logit_non_pad.argmax(dim=1) == trg_sequence_non_pad).sum() / len(trg_sequence_non_pad)
+            val_loss += recon_criterion(logit_non_pad, trg_sequence_non_pad)
 
             if args.debugging_mode:
                 break
