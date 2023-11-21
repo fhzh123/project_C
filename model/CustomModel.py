@@ -97,11 +97,10 @@ class CustomModel(nn.Module):
 
         return encoder_out
     
-    def pca_reduction(self, encoder_hidden_states, encoder_attention_mask):
+    def pca_reduction(self, encoder_hidden_states):
         U, S, V = torch.pca_lowrank(encoder_hidden_states.transpose(1,2), q=self.pca_comp_n)
         pca_encoder_out = U.transpose(1,2)
-        encoder_attention_mask = None
-        return pca_encoder_out, encoder_attention_mask
+        return pca_encoder_out
     
     def decode(self, trg_input_ids, decoder_start_token_id, encoder_hidden_states=None, encoder_attention_mask=None):
         decoder_input_ids = shift_tokens_right(

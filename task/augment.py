@@ -108,7 +108,7 @@ def augment(args):
         trg_sequence = trg_sequence[:,1:,]
         _ = batch_iter[1][1].to(device, non_blocking=True)
         trg_label = batch_iter[1][2].to(device, non_blocking=True)
-        fliped_trg_label = torch.flip(F.one_hot(torch.tensor(trg_label, dtype=torch.long)), dims=[1]).to(device)
+        fliped_trg_label = torch.flip(F.one_hot(torch.tensor(trg_label, dtype=torch.long), num_classes=2), dims=[1]).to(device)
 
         # Encoding
         encoder_out = model.encode(src_input_ids=src_sequence, src_attention_mask=src_att)
@@ -135,16 +135,38 @@ def augment(args):
         cls_loss = cls_criterion(logit, fliped_trg_label.float())
         cls_loss.backward()
 
-        hidden_states_grad = encoder_out_grad_true.grad.data.sign()
-        encoder_out_copy = encoder_out.clone().detach()
-        latent_out = encoder_out_copy - (args.fgsm_epsilon * hidden_states_grad)
+        # hidden_states_grad = encoder_out_grad_true.grad.data.sign()
+        # encoder_out_copy = encoder_out.clone().detach()
+        # latent_out = encoder_out_copy - (args.fgsm_epsilon * hidden_states_grad)
+        hidden_states_grad = encoder_out_grad_true.grad.data
+        encoder_out_copy = encoder_out_grad_true.clone().detach()
+        latent_out = encoder_out_copy - hidden_states_grad
+        latent_out_copy = latent_out.clone().detach().requires_grad_(True)
 
         new_logit = model.classify(hidden_states=latent_out, eos_mask=eos_mask)
         new_trg_label = new_logit.argmax(dim=1).tolist()
 
+        for _ in range(2000):
+
+            flipped_prob = nn.Softmax(dim=1)(new_logit)[0][fliped_trg_label.argmax(dim=1)[0].item()]
+            if flipped_prob >= 0.95:
+                print(fliped_trg_label)
+                print(trg_label)
+                break
+
+            cls_loss = cls_criterion(new_logit, fliped_trg_label.argmax(dim=1))
+            cls_loss.backward()
+
+            hidden_states_grad = encoder_out_grad_true.grad.data
+            latent_out = latent_out_copy - hidden_states_grad
+            latent_out_copy = latent_out.clone().detach().requires_grad_(True)
+
+            new_logit = model.classify(hidden_states=latent_out_copy, eos_mask=eos_mask)
+            new_trg_label = new_logit.argmax(dim=1).tolist()
+
         with torch.no_grad():
             hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
-                                        encoder_hidden_states=latent_out, encoder_attention_mask=src_att)
+                                        encoder_hidden_states=latent_out_copy, encoder_attention_mask=src_att)
             recon = model.generate(hidden_states=hidden_states)
 
             flip_recon_text_token = recon.argmax(dim=2)
@@ -152,16 +174,15 @@ def augment(args):
 
             decoding_dict = {
                 'decoding_strategy': 'beam',
-                'beam_size': 5,
+                'beam_size': 3,
                 'beam_alpha': 0.7,
                 'repetition_penalty': 0.7,
-                'softmax_temp': 0.9
+                'softmax_temp': 0.7
             }
             beam_results_ = model.sampling(decoding_dict=decoding_dict, decoder_start_token_id=model.decoder_start_token_id,
                                            encoder_hidden_states=latent_out, encoder_attention_mask=src_att)
             beam_results = trg_tokenizer.batch_decode(beam_results_)
         
-
         origin_list.extend(trg_tokenizer.batch_decode(trg_sequence))
         origin_label_list.extend(trg_label.tolist())
         recon_list.extend(recon_text)

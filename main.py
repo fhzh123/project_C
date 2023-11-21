@@ -30,7 +30,6 @@ def main(args):
         if args.augment:
             augment(args)
 
-
     # Time calculate
     print(f'Done! ; {round((time.time()-total_start_time)/60, 3)}min spend')
 

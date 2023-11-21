@@ -119,7 +119,7 @@ def cls_training(args):
 
             # PCA
             if args.pca_reduction:
-                encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
+                encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out)
                 src_att = None
 
             # Classify
@@ -163,7 +163,7 @@ def cls_training(args):
 
                 # PCA
                 if args.pca_reduction:
-                    encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
+                    encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out)
                     src_att = None
 
                 # Classify
