@@ -115,8 +115,11 @@ def augment(args):
 
         # PCA
         if args.pca_reduction:
-            encoder_out = model.pca_reduction(hidden_states=encoder_out, encoder_attention_mask=src_att)
+            U, S, V = model.pca_reduction(encoder_hidden_states=encoder_out)
             src_att = None
+
+            approx_encoder_out = U.matmul(torch.diag_embed(S, 0)).matmul(V.transpose(1,2))
+            encoder_out = approx_encoder_out.transpose(1,2)
 
         # Decoding
         hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
@@ -126,7 +129,7 @@ def augment(args):
         recon_text = trg_tokenizer.batch_decode(recon_text_token)
 
         # Label Flipping
-        encoder_out_grad_true = encoder_out.clone().detach().requires_grad_(True)
+        encoder_out_grad_true = U.transpose(1,2).clone().detach().requires_grad_(True)
 
         # Classify
         eos_mask = src_sequence.eq(model.eos_idx).to(encoder_out.device)
@@ -138,27 +141,34 @@ def augment(args):
         # hidden_states_grad = encoder_out_grad_true.grad.data.sign()
         # encoder_out_copy = encoder_out.clone().detach()
         # latent_out = encoder_out_copy - (args.fgsm_epsilon * hidden_states_grad)
-        hidden_states_grad = encoder_out_grad_true.grad.data
+        hidden_states_grad = encoder_out_grad_true.grad.data.sign()
         encoder_out_copy = encoder_out_grad_true.clone().detach()
-        latent_out = encoder_out_copy - hidden_states_grad
+        latent_out = encoder_out_copy - (args.fgsm_epsilon * hidden_states_grad)
         latent_out_copy = latent_out.clone().detach().requires_grad_(True)
 
         new_logit = model.classify(hidden_states=latent_out, eos_mask=eos_mask)
         new_trg_label = new_logit.argmax(dim=1).tolist()
 
-        for _ in range(2000):
+        for ixx in range(2000):
 
             flipped_prob = nn.Softmax(dim=1)(new_logit)[0][fliped_trg_label.argmax(dim=1)[0].item()]
             if flipped_prob >= 0.95:
                 print(fliped_trg_label)
                 print(trg_label)
+                print(ixx)
                 break
+
+            if ixx == 1999:
+                print(flipped_prob)
 
             cls_loss = cls_criterion(new_logit, fliped_trg_label.argmax(dim=1))
             cls_loss.backward()
 
-            hidden_states_grad = encoder_out_grad_true.grad.data
-            latent_out = latent_out_copy - hidden_states_grad
+            if ixx == 0:
+                hidden_states_grad = encoder_out_grad_true.grad.data
+            else:
+                hidden_states_grad = latent_out_copy.grad.data
+            latent_out = latent_out_copy - (args.fgsm_epsilon * hidden_states_grad)
             latent_out_copy = latent_out.clone().detach().requires_grad_(True)
 
             new_logit = model.classify(hidden_states=latent_out_copy, eos_mask=eos_mask)
@@ -174,7 +184,7 @@ def augment(args):
 
             decoding_dict = {
                 'decoding_strategy': 'beam',
-                'beam_size': 3,
+                'beam_size': 5,
                 'beam_alpha': 0.7,
                 'repetition_penalty': 0.7,
                 'softmax_temp': 0.7

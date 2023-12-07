@@ -14,12 +14,12 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 # Custom Modules
 from model.CustomModel import CustomModel, return_model_name
-from model.dataset import Seq2LabelDataset
+from model.dataset import ReconDataset
 from model.optimizer.utils import optimizer_select, scheduler_select
 from task.utils import TqdmLoggingHandler, write_log
 from data.data_load import data_load
 
-def cls_training(args):
+def recon_training(args):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -52,10 +52,10 @@ def cls_training(args):
     trg_vocab_num = trg_tokenizer.vocab_size
 
     dataset_dict = {
-        'train': Seq2LabelDataset(src_tokenizer=src_tokenizer, src_list=total_src_list['train'], trg_list=total_trg_list['train'], 
-                                  src_max_len=args.src_max_len),
-        'valid': Seq2LabelDataset(src_tokenizer=src_tokenizer, src_list=total_src_list['valid'], trg_list=total_trg_list['valid'], 
-                                  src_max_len=args.src_max_len)
+        'train': ReconDataset(src_tokenizer=src_tokenizer, trg_tokenizer=trg_tokenizer, src_list=total_src_list['train'], trg_list=total_trg_list['train'], 
+                              src_max_len=args.src_max_len),
+        'valid': ReconDataset(src_tokenizer=src_tokenizer, trg_tokenizer=trg_tokenizer, src_list=total_src_list['valid'], trg_list=total_trg_list['valid'], 
+                              src_max_len=args.src_max_len)
     }
     dataloader_dict = {
         'train': DataLoader(dataset_dict['train'], drop_last=True, batch_size=args.batch_size, shuffle=True,
@@ -70,14 +70,20 @@ def cls_training(args):
                         trg_label_num=len(set(total_trg_list['train'])),
                         src_max_len=args.src_max_len, isPreTrain=args.isPreTrain, dropout=args.dropout, 
                         pooling=args.pooling, pca_comp_n=args.pca_comp_n)
+    save_file_name = f'checkpoint_enc_{args.encoder_model_type}_dec_{args.decoder_model_type}_pca_{args.pca_reduction}_seed_{args.random_seed}.pth.tar'
+    save_file_path = os.path.join(args.model_save_path, args.data_name, save_file_name)
+    checkpoint = torch.load(save_file_path)
+    model.load_state_dict(checkpoint['model'])
+    write_log(logger, f'Loaded augmenter model from {save_file_path}')
     model.to(device)
 
     # 3) Optimizer & Learning rate scheduler setting
     optimizer = optimizer_select(optimizer_model=args.optimizer, model=model, lr=args.lr, w_decay=args.w_decay)
-    scheduler = scheduler_select(scheduler_model=args.scheduler, optimizer=optimizer, dataloader_len=len(dataloader_dict['train']), task='cls', args=args)
+    scheduler = scheduler_select(scheduler_model=args.scheduler, optimizer=optimizer, dataloader_len=len(dataloader_dict['train']), task='recon', args=args)
 
     cudnn.benchmark = True
-    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps).to(device)
+    # recon_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps, ignore_index=model.pad_idx).to(device)
+    recon_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing_eps).to(device)
 
     # 3) Model resume
     start_epoch = 0
@@ -99,7 +105,7 @@ def cls_training(args):
     write_log(logger, 'Traing start!')
     best_val_loss = 1e+7
 
-    for epoch in range(start_epoch + 1, args.cls_num_epochs + 1):
+    for epoch in range(start_epoch + 1, args.recon_num_epochs + 1):
         start_time_e = time()
 
         write_log(logger, 'Training start...')
@@ -112,22 +118,35 @@ def cls_training(args):
             # Input setting
             src_sequence = batch_iter[0][0].to(device, non_blocking=True)
             src_att = batch_iter[0][1].to(device, non_blocking=True)
-            trg_label = batch_iter[1].to(device, non_blocking=True)
 
-            # Encoding
-            encoder_out = model.encode(src_input_ids=src_sequence, src_attention_mask=src_att)
+            trg_sequence = batch_iter[1][0].to(device, non_blocking=True) # Same as src_sequence
+            trg_sequence = trg_sequence[:,1:,]
+            _ = batch_iter[1][1].to(device, non_blocking=True)
+            _ = batch_iter[1][2].to(device, non_blocking=True)
 
-            # PCA
-            if args.pca_reduction:
-                encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out)
-                src_att = None
+            with torch.no_grad():
+                # Encoding
+                encoder_out = model.encode(src_input_ids=src_sequence, src_attention_mask=src_att)
 
-            # Classify
-            eos_mask = src_sequence.eq(model.eos_idx).to(encoder_out.device)
-            logit = model.classify(hidden_states=encoder_out, eos_mask=eos_mask)
-            
+                # PCA
+                if args.pca_reduction:
+                    U, S, V = model.pca_reduction(encoder_hidden_states=encoder_out)
+                    src_att = None
+
+                    approx_encoder_out = U.matmul(torch.diag_embed(S, 0)).matmul(V.transpose(1,2))
+                    encoder_out = approx_encoder_out.transpose(1,2)
+
+            # Decoding
+            hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
+                                         encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
+            logit = model.generate(hidden_states=hidden_states)
+
             # Loss Backward
-            train_loss = criterion(logit, trg_label)
+            non_pad = [trg_sequence != model.pad_idx]
+            trg_sequence_non_pad = trg_sequence[trg_sequence != model.pad_idx]
+            logit_non_pad = logit[trg_sequence != model.pad_idx]
+
+            train_loss = recon_criterion(logit_non_pad, trg_sequence_non_pad)
             train_loss.backward()
             if args.clip_grad_norm > 0:
                 clip_grad_norm_(model.parameters(), args.clip_grad_norm)
@@ -136,7 +155,7 @@ def cls_training(args):
 
             # Print loss value only training
             if i == 0 or i % args.print_freq == 0 or i == len(dataloader_dict['train'])-1:
-                train_acc = (logit.argmax(dim=1) == trg_label).sum() / len(trg_label)
+                train_acc = (logit_non_pad.argmax(dim=1) == trg_sequence_non_pad).sum() / len(trg_sequence_non_pad)
                 iter_log = "[Epoch:%03d][%03d/%03d] train_loss:%03.2f | train_accuracy:%03.2f | learning_rate:%1.6f |spend_time:%02.2fmin" % \
                     (epoch, i, len(dataloader_dict['train'])-1, train_loss.item(), train_acc.item() * 100, optimizer.param_groups[0]['lr'], (time() - start_time_e) / 60)
                 write_log(logger, iter_log)
@@ -154,24 +173,33 @@ def cls_training(args):
             # Input setting
             src_sequence = batch_iter[0][0].to(device, non_blocking=True)
             src_att = batch_iter[0][1].to(device, non_blocking=True)
-            trg_label = batch_iter[1].to(device, non_blocking=True)
+
+            trg_sequence = batch_iter[1][0].to(device, non_blocking=True) # Same as src_sequence
+            trg_sequence = trg_sequence[:,1:,]
+            _ = batch_iter[1][1].to(device, non_blocking=True)
+            _ = batch_iter[1][2].to(device, non_blocking=True)
 
             with torch.no_grad():
-
                 # Encoding
                 encoder_out = model.encode(src_input_ids=src_sequence, src_attention_mask=src_att)
 
                 # PCA
                 if args.pca_reduction:
-                    encoder_out = model.pca_reduction(encoder_hidden_states=encoder_out)
+                    U, S, V = model.pca_reduction(encoder_hidden_states=encoder_out)
+                    encoder_out = U.transpose(1,2)
                     src_att = None
 
-                # Classify
-                eos_mask = src_sequence.eq(model.eos_idx).to(encoder_out.device)
-                logit = model.classify(hidden_states=encoder_out, eos_mask=eos_mask)
+                # Decoding
+                hidden_states = model.decode(trg_input_ids=trg_sequence, decoder_start_token_id=model.decoder_start_token_id, 
+                                            encoder_hidden_states=encoder_out, encoder_attention_mask=src_att)
+                logit = model.generate(hidden_states=hidden_states)
 
-            val_acc += (logit.argmax(dim=1) == trg_label).sum() / len(trg_label)
-            val_loss += criterion(logit, trg_label)
+            non_pad = [trg_sequence != model.pad_idx]
+            trg_sequence_non_pad = trg_sequence[trg_sequence != model.pad_idx]
+            logit_non_pad = logit[trg_sequence != model.pad_idx]
+
+            val_acc += (logit_non_pad.argmax(dim=1) == trg_sequence_non_pad).sum() / len(trg_sequence_non_pad)
+            val_loss += recon_criterion(logit_non_pad, trg_sequence_non_pad)
 
             if args.debugging_mode:
                 break
